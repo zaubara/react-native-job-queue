@@ -42,7 +42,7 @@
     "jest": "24.8.0",
     "metro-react-native-babel-preset": "^0.56.0",
     "react": "16.8.0",
-    "react-native": "0.60.4",
+    "react-native": "0.62.3",
     "tslint": "5.18.0",
     "tslint-config-prettier": "^1.18.0",
     "tslint-react": "4.0.0",
