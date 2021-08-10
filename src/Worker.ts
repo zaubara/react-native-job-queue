@@ -2,12 +2,16 @@ import { Job, RawJob } from './models/Job';
 
 export const CANCEL = 'rn_job_queue_cancel'
 
+const exponentialBackoffMin = 100
+
 export interface WorkerOptions<P extends object> {
     onStart?: (job: Job<P>) => void;
     onSuccess?: (job: Job<P>) => void;
     onFailure?: (job: Job<P>, error: Error) => void;
     onCompletion?: (job: Job<P>) => void;
     concurrency?: number;
+    exponentialBackoff?: boolean;
+    exponentialBackoffMax?: number;
 }
 
 export interface CancellablePromise<T> extends Promise<T> {
@@ -19,6 +23,8 @@ export interface CancellablePromise<T> extends Promise<T> {
 export class Worker<P extends object> {
     public readonly name: string;
     public readonly concurrency: number;
+    public readonly exponentialBackoff: boolean;
+    public readonly exponentialBackoffMax: number;
 
     private executionCount: number;
     private executer: (payload: P) => CancellablePromise<any>;
@@ -41,11 +47,15 @@ export class Worker<P extends object> {
             onSuccess = (job: Job<P>) => {},
             onFailure = (job: Job<P>, error: Error) => {},
             onCompletion = (job: Job<P>) => {},
-            concurrency = 5
+            concurrency = 5,
+            exponentialBackoff = false,
+            exponentialBackoffMax = 30000
         } = options;
 
         this.name = name;
         this.concurrency = concurrency;
+        this.exponentialBackoff = exponentialBackoff;
+        this.exponentialBackoffMax = exponentialBackoffMax;
 
         this.executionCount = 0;
         this.executer = executer;
@@ -87,7 +97,7 @@ export class Worker<P extends object> {
     private executeWithTimeout(job: Job<P>, timeout: number) {
       let cancel
       const promise: CancellablePromise<any> = new Promise(async (resolve, reject) => {
-        const timeoutPromise = new Promise((resolve, reject) => {
+        const timeoutPromise = new Promise((_, reject) => {
             setTimeout(() => {
                 reject(new Error(`Job ${job.id} timed out`));
             }, timeout);
@@ -102,6 +112,14 @@ export class Worker<P extends object> {
             // cancel task if has cancel method
             if (executerPromise[CANCEL] && typeof executerPromise[CANCEL] === 'function') {
               executerPromise[CANCEL]!()
+            }
+            if (this.exponentialBackoff) {
+              let { failedAttempts } = JSON.parse(job.metaData);
+              await new Promise((res) => {
+                setTimeout(() => {
+                    res(true);
+                }, Math.min(10 ** (Number(failedAttempts)), exponentialBackoffMin, this.exponentialBackoffMax));
+              });
             }
             reject(error);
           }
